@@ -2,9 +2,9 @@
 
 // A hybrid audio engine: Supports custom Audio Files with a Procedural Fallback.
 
-// 🎵 HIGH QUALITY RPG MUSIC (Hosted on Internet Archive / HoliznaCC0) 🎵
-const MENU_MUSIC_URL: string = "https://ia801900.us.archive.org/4/items/holiznacc0-music/HoliznaCC0%20-%20Daybreak.mp3"; 
-const BATTLE_MUSIC_URL: string = "https://ia801900.us.archive.org/4/items/holiznacc0-music/HoliznaCC0%20-%20Battle%20Theme.mp3"; 
+// 🎵 LOCAL MUSIC FILES 🎵
+const MENU_MUSIC_URL: string = "/legend-of-the-sky/music/Dreamer_s Reverie.mp3"; 
+const BATTLE_MUSIC_URL: string = "/legend-of-the-sky/music/戰鬥之魂.mp3"; 
 
 type MusicType = 'THEME' | 'BATTLE' | 'NONE';
 
