@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { GameState, Hero, ActiveTower, Enemy, TowerType, ProjectileType, GameView, Soldier, EnemyType, Projectile, SelectedTalents, ActiveEvent, TowerDef, ShopItem } from '../types';
-import { LEVELS, TOWER_DEFS, ENEMIES, SHOP_ITEMS, MAX_GLOBAL_SPEED_BUFF, MAX_TOTAL_SLOW, MAX_SLOW_STACKS, SLOW_DURATION_FRAMES, BANK_INTEREST_CAP, BASE_GROWTH_RATE, BASE_LINEAR, SOFT_CAP_START_WAVE, SOFT_GROWTH_FACTOR, ENEMY_GROWTH_MODIFIERS } from '../constants';
+import { LEVELS, TOWER_DEFS, ENEMIES, SHOP_ITEMS, MAX_GLOBAL_SPEED_BUFF, MAX_TOTAL_SLOW, MAX_SLOW_STACKS, SLOW_DURATION_FRAMES, BANK_INTEREST_CAP, BASE_GROWTH_RATE, BASE_LINEAR, SOFT_CAP_START_WAVE, SOFT_GROWTH_FACTOR, ENEMY_GROWTH_MODIFIERS, TOTEM_BASE_SPEED, TOTEM_SPEED_PER_LEVEL, MAX_TOTEM_STACKS, MAX_TOTEM_TOTAL } from '../constants';
 import { Play, Pause, Skull, RotateCcw, Crosshair, Zap, BookOpen, ArrowUp, Clock, Swords, Trophy, Home, ShoppingBag, Plus, AlertTriangle, X, LogOut, TrendingUp, BarChart, ShieldAlert, Bug, Hourglass, FastForward, MousePointer, HelpCircle } from 'lucide-react';
 import Bestiary from './Bestiary';
 import { HeroPortrait } from './HeroSelect';
@@ -821,6 +821,8 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
         let globalEnemySlow = 0; // % Slow from towers
         let globalDamageReduction = 0; // % Weakness
 
+        // Collect totem (t3Index===0) contributions separately so we can cap stacks
+        const totemContributions: number[] = [];
         newTowers.forEach(t => {
             const def = TOWER_DEFS[Object.values(TOWER_DEFS).find(d => d.id === t.defId)!.type];
             if (def.type === TowerType.SUPPORT) {
@@ -828,8 +830,8 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                 if (t.tier >= 2) globalRangeBuff += 0.1;
                 if (t.tier === 3) {
                     if (t.t3Index === 0) {
-                        globalSpeedBuff += 0.3;
-                        globalSpeedBuff += (t.skillLevels['totem_speed'] || 0) * 0.05;
+                        const contrib = TOTEM_BASE_SPEED + (t.skillLevels['totem_speed'] || 0) * TOTEM_SPEED_PER_LEVEL;
+                        totemContributions.push(contrib);
                         globalCritChance += (t.skillLevels['totem_crit'] || 0) * 0.05;
                     }
                     if (t.t3Index === 1) {
@@ -843,6 +845,11 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                 }
             }
         });
+        if (totemContributions.length > 0) {
+            totemContributions.sort((a, b) => b - a);
+            const applied = totemContributions.slice(0, MAX_TOTEM_STACKS).reduce((s, v) => s + v, 0);
+            globalSpeedBuff += Math.min(applied, MAX_TOTEM_TOTAL);
+        }
 
         // Clamp some global values to keep balance
         globalSpeedBuff = Math.min(globalSpeedBuff, MAX_GLOBAL_SPEED_BUFF);
@@ -1803,17 +1810,23 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
   let uiGlobalSpeedBuff = 1.0;
 
   if (selectedTower) {
+      const uiTotemContribs: number[] = [];
       gameState.activeTowers.forEach(t => {
           const def = TOWER_DEFS[Object.values(TOWER_DEFS).find(d => d.id === t.defId)!.type];
           if (def.type === TowerType.SUPPORT) {
               if (t.tier >= 1) uiGlobalDamageBuff += 0.1;
               if (t.tier >= 2) uiGlobalRangeBuff += 0.1;
               if (t.tier === 3 && t.t3Index === 0) {
-                  uiGlobalSpeedBuff += 0.3;
-                  uiGlobalSpeedBuff += (t.skillLevels['totem_speed'] || 0) * 0.05;
+                  const contrib = TOTEM_BASE_SPEED + (t.skillLevels['totem_speed'] || 0) * TOTEM_SPEED_PER_LEVEL;
+                  uiTotemContribs.push(contrib);
               }
           }
       });
+      if (uiTotemContribs.length > 0) {
+          uiTotemContribs.sort((a,b) => b - a);
+          const applied = uiTotemContribs.slice(0, MAX_TOTEM_STACKS).reduce((s, v) => s + v, 0);
+          uiGlobalSpeedBuff += Math.min(applied, MAX_TOTEM_TOTAL);
+      }
       if (gameState.skillEffect?.type === 'LYRA_LIGHT') uiGlobalSpeedBuff += 1.0;
   }
 

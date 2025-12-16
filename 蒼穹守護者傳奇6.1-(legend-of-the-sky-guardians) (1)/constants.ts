@@ -324,6 +324,12 @@ export const ENEMY_GROWTH_MODIFIERS: Partial<Record<EnemyType, number>> = {
   [EnemyType.VOID_LORD]: 0.6
 };
 
+// Totem (support tower t3Index === 0) tuning
+export const TOTEM_BASE_SPEED = 0.15; // base global speed buff granted by a totem (was 0.3)
+export const TOTEM_SPEED_PER_LEVEL = 0.03; // per skill level increment (was 0.05)
+export const MAX_TOTEM_STACKS = 2; // maximum number of totems that can stack their speed buff
+export const MAX_TOTEM_TOTAL = 1.5; // cap on total totem-contributed speed bonus
+
 // --- Tower Definitions (With Skills & Adjustments) ---
 export const TOWER_DEFS: Record<TowerType, TowerDef> = {
   [TowerType.BARRACKS]: {
