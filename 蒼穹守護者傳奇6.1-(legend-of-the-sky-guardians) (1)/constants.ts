@@ -306,6 +306,24 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
   [EnemyType.VOID_LORD]: { type: EnemyType.VOID_LORD, name: "【終焉】虛空領主", description: "最終BOSS。", baseHp: 8000, baseSpeed: 0.3, armor: 0.5, isFlying: true, reward: 500, visualColor: '#000000' }
 };
 
+// Enemy scaling tunables
+export const BASE_GROWTH_RATE = 1.08; // was 1.10
+export const BASE_LINEAR = 0.4; // was 0.5
+export const SOFT_CAP_START_WAVE = 50; // waves after this apply soft-cap modifier
+export const SOFT_GROWTH_FACTOR = 0.5; // fraction of growth after soft-cap
+
+// Per-enemy-type growth modifiers (multiplicative on calculated scale)
+export const ENEMY_GROWTH_MODIFIERS: Partial<Record<EnemyType, number>> = {
+  [EnemyType.BEHEMOTH]: 0.75,
+  [EnemyType.TITAN]: 0.7,
+  [EnemyType.BOSS_DRAGON]: 0.8,
+  [EnemyType.BOSS_LICH]: 0.8,
+  [EnemyType.BOSS_HYDRA]: 0.8,
+  [EnemyType.BOSS_KRAKEN]: 0.7,
+  [EnemyType.BOSS_FALLEN_ANGEL]: 0.8,
+  [EnemyType.VOID_LORD]: 0.6
+};
+
 // --- Tower Definitions (With Skills & Adjustments) ---
 export const TOWER_DEFS: Record<TowerType, TowerDef> = {
   [TowerType.BARRACKS]: {
@@ -477,6 +495,16 @@ export const TOWER_DEFS: Record<TowerType, TowerDef> = {
     ]
   }
 };
+
+// Gameplay caps and tunables
+export const MAX_GLOBAL_SPEED_BUFF = 3.0; // maximum aggregated speed buff multiplier (prevents excessive attack speed)
+export const MAX_TOTAL_SLOW = 0.6; // maximum total slow % applied to enemies (60%)
+export const MAX_SLOW_STACKS = 3; // maximum stacks of slow effects per enemy
+export const SLOW_DURATION_FRAMES = 180; // slow lasts 3 seconds by default (at 60fps)
+export const BANK_INTEREST_CAP = 300; // maximum interest per production tick
+
+// Terrain event mapping keys (for readability)
+export type DecorationType = 'FOREST' | 'DESERT' | 'SNOW' | 'LAVA' | 'VOID';
 
 export const SHOP_ITEMS: ShopItem[] = [
   { id: 'potion', name: '生命藥水', cost: 500, icon: '❤️', description: '恢復 5 點生命值，英雄回滿血', effectType: 'HEAL' },

@@ -101,6 +101,7 @@ const LevelSelect: React.FC<LevelSelectProps> = ({ onSelectLevel, onBack }) => {
                                         strokeWidth="2" 
                                         strokeLinecap="round" 
                                         strokeLinejoin="round" 
+                                        //到此一遊
                                         strokeDasharray="10,10"
                                         className="animate-[dash_60s_linear_infinite]"
                                     />
@@ -157,6 +158,7 @@ const LevelSelect: React.FC<LevelSelectProps> = ({ onSelectLevel, onBack }) => {
         </div>
 
         {/* Pagination Dots */}
+        
         <div className="flex gap-3 mt-8">
             {LEVELS.map((_, idx) => (
                 <button 

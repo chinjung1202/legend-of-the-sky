@@ -289,14 +289,17 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onChangeView, onLoginAdmin
                     <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
                         <div className="text-slate-400 text-xs uppercase mb-1">Created By</div>
                         <div className="text-2xl font-bold text-white">瘋魂</div>
+                        //SB
                     </div>
                     <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
                         <div className="text-slate-400 text-xs uppercase mb-1">Co-Creator</div>
                         <div className="text-2xl font-bold text-white">白無痕</div>
+                        // 這位是gay
                     </div>
                     <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
                         <div className="text-slate-400 text-xs uppercase mb-1">Co-Creator</div>
                         <div className="text-2xl font-bold text-white">WRAITHON</div>
+                        //I am good hacker
                     </div>
                 </div>
                 

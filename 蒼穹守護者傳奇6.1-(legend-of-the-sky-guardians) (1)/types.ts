@@ -164,6 +164,10 @@ export interface Enemy {
   burnTime: number;
   stunTime: number;
   poisonTime: number; // New
+  // Slow mechanics (percent: 0-1)
+  slowPercent?: number;
+  slowStacks?: number;
+  slowTime?: number; // Frames remaining for slow; when <=0 slow clears
   isBoss?: boolean; 
   // Transient Flags
   dead?: boolean;
@@ -283,7 +287,7 @@ export interface ActiveEvent {
   name: string;
   description: string;
   timer: number;
-  type: 'ENEMY_SPEED' | 'ENEMY_ARMOR' | 'HERO_CD' | 'DOUBLE_GOLD';
+  type: 'ENEMY_SPEED' | 'ENEMY_ARMOR' | 'HERO_CD' | 'DOUBLE_GOLD' | 'FOREST_ENTANGLE' | 'SANDSTORM' | 'BLIZZARD' | 'LAVA_FLOW' | 'NULL_FIELD';
 }
 
 export interface GameState {

@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { GameState, Hero, ActiveTower, Enemy, TowerType, ProjectileType, GameView, Soldier, EnemyType, Projectile, SelectedTalents, ActiveEvent, TowerDef, ShopItem } from '../types';
-import { LEVELS, TOWER_DEFS, ENEMIES, SHOP_ITEMS } from '../constants';
+import { LEVELS, TOWER_DEFS, ENEMIES, SHOP_ITEMS, MAX_GLOBAL_SPEED_BUFF, MAX_TOTAL_SLOW, MAX_SLOW_STACKS, SLOW_DURATION_FRAMES, BANK_INTEREST_CAP, BASE_GROWTH_RATE, BASE_LINEAR, SOFT_CAP_START_WAVE, SOFT_GROWTH_FACTOR, ENEMY_GROWTH_MODIFIERS } from '../constants';
 import { Play, Pause, Skull, RotateCcw, Crosshair, Zap, BookOpen, ArrowUp, Clock, Swords, Trophy, Home, ShoppingBag, Plus, AlertTriangle, X, LogOut, TrendingUp, BarChart, ShieldAlert, Bug, Hourglass, FastForward, MousePointer, HelpCircle } from 'lucide-react';
 import Bestiary from './Bestiary';
 import { HeroPortrait } from './HeroSelect';
@@ -611,7 +611,20 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
   const spawnEnemy = (wave: number, pathId: number, path: {x: number, y: number}[], offsetDistance: number = 30) => {
       const typeToSpawn = getWaveEnemyType(wave);
       const def = ENEMIES[typeToSpawn];
-      const scale = Math.pow(1.10, wave) + (wave * 0.5); // Boosted Scaling
+      // --- Enemy scaling with conservative base, soft cap, and per-type modifiers ---
+      // Conservative base: exponential * linear
+      const baseScale = Math.pow(BASE_GROWTH_RATE, wave) + (wave * BASE_LINEAR);
+      let scale = baseScale;
+
+      // Apply soft cap smoothing after SOFT_CAP_START_WAVE
+      if (wave > SOFT_CAP_START_WAVE) {
+          const baseAtSoft = Math.pow(BASE_GROWTH_RATE, SOFT_CAP_START_WAVE) + (SOFT_CAP_START_WAVE * BASE_LINEAR);
+          scale = baseAtSoft + (baseScale - baseAtSoft) * SOFT_GROWTH_FACTOR;
+      }
+
+      // Per-type modifier reduces growth for especially strong units
+      const typeModifier = ENEMY_GROWTH_MODIFIERS[typeToSpawn] || 1.0;
+      scale = scale * typeModifier;
       
       const spawnPos = getSpawnPoint(path, offsetDistance);
 
@@ -627,6 +640,9 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
           pathIndex: 0,
           isFlying: def.isFlying,
           freezeTime: 0,
+          slowPercent: 0,
+          slowStacks: 0,
+          slowTime: 0,
           burnTime: 0,
           stunTime: 0,
           poisonTime: 0,
@@ -656,6 +672,9 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                 pathIndex: 0,
                 isFlying: def.isFlying,
                 freezeTime: 0,
+                slowPercent: 0,
+                slowStacks: 0,
+                slowTime: 0,
                 burnTime: 0,
                 stunTime: 0,
                 poisonTime: 0,
@@ -771,8 +790,9 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
         let newTotalDamageDealt = prev.totalDamageDealt;
         let newWaveTimer = prev.waveTimer;
         
-        // Only decrement wave timer if not at max wave
-        if (newWave < levelConfig.waves) {
+        // Only decrement wave timer if not at max wave and tutorial is not showing
+        // This prevents the tutorial level from auto-starting waves before the player hits Start
+        if (newWave < levelConfig.waves && !showTutorial) {
             newWaveTimer = prev.waveTimer - (1 * gameSpeed);
         }
         
@@ -798,7 +818,7 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
         let globalSpeedBuff = 1.0;
         let globalSoldierHpBuff = 1.0;
         let globalCritChance = 0;
-        let globalEnemySlow = 0; // % Slow
+        let globalEnemySlow = 0; // % Slow from towers
         let globalDamageReduction = 0; // % Weakness
 
         newTowers.forEach(t => {
@@ -823,6 +843,10 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                 }
             }
         });
+
+        // Clamp some global values to keep balance
+        globalSpeedBuff = Math.min(globalSpeedBuff, MAX_GLOBAL_SPEED_BUFF);
+        globalEnemySlow = Math.min(globalEnemySlow, MAX_TOTAL_SLOW);
         if (skillEffect?.type === 'LYRA_LIGHT') globalSpeedBuff += 1.0;
 
         // --- WAVE LOGIC: Timer Check inside State Update for Atomicity ---
@@ -852,15 +876,30 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
              // Initial spawn for new wave happens in next frame via spawnTimer logic below
         }
 
-        // --- WAVE EVENTS ---
+        // --- WAVE EVENTS (including terrain-specific) ---
         if (newWave > 1 && newWave % 5 === 0 && !waveStateRef.current.eventTriggered) {
-             const events: ActiveEvent[] = [
+             const baseEvents: ActiveEvent[] = [
                 { type: 'ENEMY_SPEED', name: '急速狂潮', description: '本波敵人移動速度 +30%', timer: 3000 },
                 { type: 'ENEMY_ARMOR', name: '鐵壁防禦', description: '本波敵人護甲 +20%', timer: 3000 },
                 { type: 'HERO_CD', name: '魔力激盪', description: '英雄技能冷卻時間減半', timer: 3000 },
                 { type: 'DOUBLE_GOLD', name: '黃金時代', description: '本波擊殺金幣加倍', timer: 3000 }
             ];
-            activeEvent = events[Math.floor(Math.random() * events.length)];
+
+            // Add terrain-themed events based on map decoration type
+            const terrainType = levelConfig.theme.decorationType;
+            if (terrainType === 'FOREST') {
+                baseEvents.push({ type: 'FOREST_ENTANGLE', name: '荊棘蔓延', description: '本波敵人被荊棘纏繞，移動速度 -20%', timer: 3000 });
+            } else if (terrainType === 'DESERT') {
+                baseEvents.push({ type: 'SANDSTORM', name: '沙塵暴', description: '本波塔攻擊射程降低 25%', timer: 3000 });
+            } else if (terrainType === 'SNOW') {
+                baseEvents.push({ type: 'BLIZZARD', name: '暴風雪', description: '本波敵人移動速度 -30%', timer: 3000 });
+            } else if (terrainType === 'LAVA') {
+                baseEvents.push({ type: 'LAVA_FLOW', name: '熔岩氾濫', description: '本波敵人持續受到火焰傷害', timer: 3000 });
+            } else if (terrainType === 'VOID') {
+                baseEvents.push({ type: 'NULL_FIELD', name: '虛空場域', description: '本波防禦塔傷害降低 25%', timer: 3000 });
+            }
+
+            activeEvent = baseEvents[Math.floor(Math.random() * baseEvents.length)];
             waveStateRef.current.eventTriggered = true;
         }
         
@@ -966,10 +1005,13 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                 tower.lastAttackTime -= (deltaTime * (gameSpeed - 1));
             }
 
-            const effectiveRange = stats.range * globalRangeBuff + (tower.skillLevels['sniper_range'] || 0) * 50;
+            let effectiveRange = stats.range * globalRangeBuff + (tower.skillLevels['sniper_range'] || 0) * 50;
+            if (activeEvent?.type === 'SANDSTORM') effectiveRange *= 0.75; // Sandstorm reduces tower range
             const effectiveDamage = stats.damage * globalDamageBuff + (tower.skillLevels['gem_laser'] || 0) * 50 + (tower.skillLevels['bertha_nuke'] || 0) * 300;
             let effectiveRate = stats.rate / globalSpeedBuff;
             if (tower.skillLevels['bank_speed']) effectiveRate /= (1 + (tower.skillLevels['bank_speed'] * 0.1));
+            // Enforce minimum effectiveRate based on MAX_GLOBAL_SPEED_BUFF (prevents >max buff)
+            effectiveRate = Math.max(effectiveRate, stats.rate / MAX_GLOBAL_SPEED_BUFF);
 
             // --- SUMMON LOGIC FOR MAGE/OTHER ---
             if ((def.type === TowerType.MAGE && (tower.t3Index === 1 || tower.t3Index === 2))) {
@@ -1214,7 +1256,11 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                 let amount = (tower.tier === 1 ? 15 : tower.tier === 2 ? 30 : 45);
                 if (tower.tier === 3 && tower.t3Index === 0) {
                     const interestLv = tower.skillLevels['bank_interest'] || 0;
-                    if (interestLv > 0) amount += Math.min(Math.floor(newMoney * (0.01 * interestLv)), 300);
+                    if (interestLv > 0) {
+                        // Compound interest is based on tower production amount (per-tick), not total money
+                        const interest = Math.min(Math.floor(amount * (0.01 * interestLv)), BANK_INTEREST_CAP);
+                        amount += interest;
+                    }
                 }
                 if (tower.tier === 3 && tower.t3Index === 2) {
                      const moneyLv = tower.skillLevels['gem_money'] || 0;
@@ -1241,13 +1287,30 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
             if (e.hp <= 0) return { ...e, dead: true };
             let moveSpeed = e.speed;
             if (activeEvent?.type === 'ENEMY_SPEED') moveSpeed *= 1.3;
+            // Terrain-specific slow events
+            if (activeEvent?.type === 'FOREST_ENTANGLE') moveSpeed *= 0.8; // -20% move speed for this wave
+            if (activeEvent?.type === 'BLIZZARD') moveSpeed *= 0.7; // -30% move speed for this wave
             
             // Status Effects
             if (e.freezeTime > 0) { moveSpeed *= 0.5; e.freezeTime = Math.max(0, e.freezeTime - (1 * gameSpeed)); }
-            if (globalEnemySlow > 0) { moveSpeed *= (1 - globalEnemySlow); } 
+
+            // Per-enemy slow + global slow combined (clamped)
+            if (e.slowTime && e.slowTime > 0) {
+                e.slowTime = Math.max(0, e.slowTime - (1 * gameSpeed));
+                if (e.slowTime <= 0) { e.slowPercent = 0; e.slowStacks = 0; }
+            }
+            const totalSlow = Math.min(MAX_TOTAL_SLOW, (globalEnemySlow || 0) + (e.slowPercent || 0));
+            if (totalSlow > 0) moveSpeed *= (1 - totalSlow);
             
             if (e.burnTime > 0) { e.hp -= (0.5 * gameSpeed); newTotalDamageDealt += (0.5 * gameSpeed); e.burnTime = Math.max(0, e.burnTime - (1 * gameSpeed)); }
             if (e.poisonTime > 0) { e.hp -= (0.8 * gameSpeed); newTotalDamageDealt += (0.8 * gameSpeed); e.poisonTime = Math.max(0, e.poisonTime - (1 * gameSpeed)); }
+
+            // Terrain lava causes persistent minor damage each frame
+            if (activeEvent?.type === 'LAVA_FLOW') {
+                const lavaTick = 0.2 * gameSpeed;
+                e.hp -= lavaTick;
+                newTotalDamageDealt += lavaTick;
+            }
             
             if (e.stunTime > 0) { moveSpeed = 0; e.stunTime = Math.max(0, e.stunTime - (1 * gameSpeed)); }
             
@@ -1387,6 +1450,12 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                             if (p.sourceTowerId) {
                                 towerDamageUpdates.set(p.sourceTowerId, (towerDamageUpdates.get(p.sourceTowerId) || 0) + damage);
                             }
+                            // Terrain lava applies extra burn-like damage
+                            if (activeEvent?.type === 'LAVA_FLOW') {
+                                const lavaDmg = 0.5;
+                                e.hp -= lavaDmg;
+                                newTotalDamageDealt += lavaDmg;
+                            }
                         }
                     });
                     
@@ -1414,20 +1483,38 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
                            newParticles.push({ id: Math.random().toString(), x: tx, y: ty - 10, life: 8, maxLife: 8, color: '#c084fc', radius: 4 }); 
                         }
 
+                        if (activeEvent?.type === 'NULL_FIELD') {
+                            damage *= 0.75; // tower damage reduced by 25% during null field
+                        }
+
                         if (p.headshotChance && !target.isBoss && Math.random() < p.headshotChance) {
                              damage = target.hp + 999;
                              newParticles.push({ id: `txt_${Math.random()}`, x: tx, y: ty - 20, life: 30, maxLife: 30, color: '#ef4444', radius: 0, text: 'HEADSHOT!' });
                         }
 
                         target.hp -= damage;
+                        // Terrain lava causes persistent burning — give a small immediate tick as well
+                        if (activeEvent?.type === 'LAVA_FLOW') {
+                            const lavaDmg = 0.5;
+                            target.hp -= lavaDmg;
+                            newTotalDamageDealt += lavaDmg;
+                        }
                         newTotalDamageDealt += damage;
                         if (p.sourceTowerId) {
                             towerDamageUpdates.set(p.sourceTowerId, (towerDamageUpdates.get(p.sourceTowerId) || 0) + damage);
                         }
                         
                         if (p.type === ProjectileType.MAGIC) target.freezeTime = 30;
-                        if (p.poisonDamage) { target.poisonTime += 120; }
-                        if (p.slowAmount) { target.freezeTime += 60; }
+                                if (p.poisonDamage) { target.poisonTime += 120; }
+                                // Apply slow as percent stacking with max and duration
+                                if (p.slowAmount) {
+                                    const added = p.slowAmount; // value is e.g. 0.1 for 10%
+                                    target.slowStacks = (target.slowStacks || 0) + 1;
+                                    // limit stacks
+                                    if (target.slowStacks > MAX_SLOW_STACKS) target.slowStacks = MAX_SLOW_STACKS;
+                                    target.slowPercent = Math.min(MAX_TOTAL_SLOW, (target.slowPercent || 0) + added);
+                                    target.slowTime = Math.max(target.slowTime || 0, SLOW_DURATION_FRAMES);
+                                }
                         if (p.stunDuration) { target.stunTime += p.stunDuration; }
                         if (p.teleportChance && Math.random() < p.teleportChance) {
                              target.pathIndex = Math.max(0, target.pathIndex - 5);
@@ -1535,7 +1622,7 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
       lastTimeRef.current = time;
     }
     requestRef.current = requestAnimationFrame(updateGame);
-  }, [gameState.isPaused, levelConfig, gameState.view, showBestiary, isShopOpen, createBoss, callNextWave, levelId]); 
+    }, [gameState.isPaused, levelConfig, gameState.view, showBestiary, isShopOpen, createBoss, callNextWave, levelId, showTutorial]); 
 
   const StatRow = ({label, value, nextValue, highlight}: {label: string, value: string, nextValue?: string, highlight?: boolean}) => (
       <div className="flex justify-between text-xs mb-1">
@@ -1738,22 +1825,26 @@ const GameLevel: React.FC<GameLevelProps> = ({ levelId, hero, selectedTalents, o
   if (selectedTower) {
       const stats = getTowerStats(selectedTower);
       const rangeBonus = (selectedTower.skillLevels['sniper_range'] || 0) * 50;
-      effectiveRange = stats.range * uiGlobalRangeBuff + rangeBonus;
+    effectiveRange = stats.range * uiGlobalRangeBuff + rangeBonus;
+    if (gameState.activeEvent?.type === 'SANDSTORM') effectiveRange *= 0.75;
 
       const damageBonus = (selectedTower.skillLevels['gem_laser'] || 0) * 50 + (selectedTower.skillLevels['bertha_nuke'] || 0) * 300;
-      effectiveDamage = stats.damage * uiGlobalDamageBuff + damageBonus;
+    effectiveDamage = stats.damage * uiGlobalDamageBuff + damageBonus;
+    if (gameState.activeEvent?.type === 'NULL_FIELD') effectiveDamage *= 0.75;
 
       const rateBonus = (selectedTower.skillLevels['bank_speed'] || 0) * 0.1;
-      effectiveRate = stats.rate / uiGlobalSpeedBuff;
+    // clamp UI display of global speed buff to match gameplay cap
+    uiGlobalSpeedBuff = Math.min(uiGlobalSpeedBuff, MAX_GLOBAL_SPEED_BUFF);
+    effectiveRate = stats.rate / uiGlobalSpeedBuff;
       if (rateBonus > 0) effectiveRate /= (1 + rateBonus);
 
       if (selectedTowerDef?.type === TowerType.GOLD_MINE) {
           const baseAmount = selectedTower.tier === 1 ? 15 : selectedTower.tier === 2 ? 30 : 45;
           let bonus = 0;
-          if (selectedTower.tier === 3 && selectedTower.t3Index === 0) {
-             const interestLv = selectedTower.skillLevels['bank_interest'] || 0;
-             if (interestLv > 0) bonus += Math.min(Math.floor(gameState.money * (0.01 * interestLv)), 300); 
-          }
+             if (selectedTower.tier === 3 && selectedTower.t3Index === 0) {
+                 const interestLv = selectedTower.skillLevels['bank_interest'] || 0;
+                 if (interestLv > 0) bonus += Math.min(Math.floor(baseAmount * (0.01 * interestLv)), BANK_INTEREST_CAP);
+             }
           effectiveGold = baseAmount + bonus;
           if (gameState.goldBuffTimer > 0) effectiveGold *= 2;
       }

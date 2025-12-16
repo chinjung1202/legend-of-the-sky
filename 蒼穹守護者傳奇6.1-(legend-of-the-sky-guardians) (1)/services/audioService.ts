@@ -2,9 +2,17 @@
 
 // A hybrid audio engine: Supports custom Audio Files with a Procedural Fallback.
 
-// 🎵 LOCAL MUSIC FILES 🎵
-const MENU_MUSIC_URL: string = "/legend-of-the-sky/music/Dreamer_s Reverie.mp3"; 
-const BATTLE_MUSIC_URL: string = "/legend-of-the-sky/music/戰鬥之魂.mp3"; 
+// 🎵 LOCAL MUSIC PLAYLISTS (輪播) 🎵
+const MENU_MUSIC_URLS: string[] = [
+  "/legend-of-the-sky/music/Dreamer_s Reverie.mp3",
+  "/legend-of-the-sky/music/Neon Shadows.mp3",
+];
+
+// Use Neon Shadows as the primary battle track and rotate remaining tracks
+const BATTLE_MUSIC_URLS: string[] = [
+  "/legend-of-the-sky/music/Neon Shadows.mp3",
+  "/legend-of-the-sky/music/Dreamer_s Reverie.mp3",
+];
 
 type MusicType = 'THEME' | 'BATTLE' | 'NONE';
 
@@ -21,6 +29,8 @@ class AudioController {
 
   // File Audio
   private fileAudio: HTMLAudioElement | null = null;
+  private menuIndex: number = 0;
+  private battleIndex: number = 0;
 
   private isInitialized: boolean = false;
 
@@ -126,11 +136,12 @@ class AudioController {
     this.stop();
     this.currentType = type;
 
-    const url = type === 'THEME' ? MENU_MUSIC_URL : BATTLE_MUSIC_URL;
+    const urls = type === 'THEME' ? MENU_MUSIC_URLS : BATTLE_MUSIC_URLS;
 
-    // Try to play file if URL exists
-    if (url && url.trim() !== "") {
-        this.playFileAudio(url);
+    // Try to play playlist if URLs exist
+    if (urls && urls.length > 0) {
+      const startIndex = type === 'THEME' ? this.menuIndex : this.battleIndex;
+      this.playFileAudioList(urls, startIndex, type);
     } else {
         // Fallback to Procedural
         if (!this.ctx || !this.masterGain) return;
@@ -142,34 +153,67 @@ class AudioController {
     }
   }
 
-  private playFileAudio(url: string) {
+    private playFileAudio(url: string) {
+      // Backwards-compatible single file play (delegates to playlist handler)
+      this.playFileAudioList([url], 0, this.currentType);
+    }
+
+    private playFileAudioList(urls: string[], startIndex: number = 0, type?: MusicType) {
       try {
-          // Create new audio element
-          this.fileAudio = new Audio();
-          this.fileAudio.crossOrigin = "anonymous"; // Try to handle CORS if server supports it
-          this.fileAudio.src = url;
-          this.fileAudio.loop = true;
-          this.fileAudio.volume = this.volume; 
-          this.fileAudio.muted = this.isMuted;
-          
-          const playPromise = this.fileAudio.play();
-          
-          if (playPromise !== undefined) {
-              playPromise.catch(error => {
-                  console.warn("Audio file playback failed (using fallback):", error);
-                  // If file fails (e.g. 404 or format), fallback to procedural
-                  this.fileAudio = null;
-                  if (this.currentType === 'THEME') this.playEtherealTheme();
-                  else if (this.currentType === 'BATTLE') this.playBattleMarch();
-              });
-          }
+        if (!urls || urls.length === 0) {
+          if (type === 'THEME') this.playEtherealTheme();
+          else if (type === 'BATTLE') this.playBattleMarch();
+          return;
+        }
+
+        const idx = startIndex % urls.length;
+
+        // Create or reuse audio element
+        if (this.fileAudio) {
+          // remove handlers and reset
+          try { this.fileAudio.onended = null; } catch(e) {}
+          this.fileAudio.pause();
+        }
+
+        this.fileAudio = new Audio();
+        this.fileAudio.crossOrigin = "anonymous";
+        this.fileAudio.src = urls[idx];
+        this.fileAudio.loop = false; // we'll handle rotation on ended
+        this.fileAudio.volume = this.volume;
+        this.fileAudio.muted = this.isMuted;
+
+        this.fileAudio.onended = () => {
+          const next = (idx + 1) % urls.length;
+          if (type === 'THEME') this.menuIndex = next;
+          if (type === 'BATTLE') this.battleIndex = next;
+          // continue rotation
+          this.playFileAudioList(urls, next, type);
+        };
+
+        const playPromise = this.fileAudio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            console.warn("Audio file playback failed for ", urls[idx], ", trying next (if any).", error);
+            // Try next track in playlist, or fallback to procedural if none succeed
+            this.fileAudio = null;
+            const next = (idx + 1) % urls.length;
+            if (next === idx) {
+              // only one track and it failed
+              if (type === 'THEME') this.playEtherealTheme();
+              else if (type === 'BATTLE') this.playBattleMarch();
+            } else {
+              if (type === 'THEME') this.menuIndex = next;
+              if (type === 'BATTLE') this.battleIndex = next;
+              this.playFileAudioList(urls, next, type);
+            }
+          });
+        }
       } catch (e) {
-          console.error("Error initializing audio object", e);
-          // Fallback immediately
-          if (this.currentType === 'THEME') this.playEtherealTheme();
-          else if (this.currentType === 'BATTLE') this.playBattleMarch();
+        console.error("Error initializing audio playlist", e);
+        if (type === 'THEME') this.playEtherealTheme();
+        else if (type === 'BATTLE') this.playBattleMarch();
       }
-  }
+    }
 
   // --- Procedural Fallback 1: Ethereal (Menu/Story) ---
   private playEtherealTheme() {
